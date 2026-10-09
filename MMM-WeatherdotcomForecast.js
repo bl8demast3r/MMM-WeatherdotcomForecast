@@ -1,0 +1,2226 @@
+// MMM-WeatherdotcomForecast.js
+//
+// Fork of MMM-NOAAForecast (https://github.com/bl8demast3r/MMM-NOAAForecast)
+// that displays the weather data shared by the MMM-Weatherdotcom module
+// (Weather.com, with NOAA as a backup) instead of polling NOAA itself.
+Module.register("MMM-WeatherdotcomForecast", {
+  /*
+      This module uses the Nunjucks templating system introduced in
+      version 2.2.0 of MagicMirror.  If you're seeing nothing on your
+      display where you expect this module to appear, make sure your
+      MagicMirror version is at least 2.2.0.
+    */
+  requiresVersion: "2.2.0",
+
+  defaults: {
+    units: config.units,
+    frameWidth: 300, // px width of the rendered module column; raise to align with neighbouring modules
+    showCurrentConditions: true,
+    showExtraCurrentConditions: true,
+    extraCurrentConditions: {
+      highLowTemp: true,
+      precipitation: true,
+      sunrise: true,
+      sunset: true,
+      wind: true,
+      barometricPressure: false,
+      humidity: true,
+      dewPoint: true,
+      uvIndex: false,
+      visibility: false
+    },
+    showSummary: true,
+    showAlerts: true,
+    maxAlertsToShow: 0,
+    forecastHeaderText: "",
+    showForecastTableColumnHeaderIcons: true,
+    showHourlyForecast: true,
+    hourlyForecastInterval: 3,
+    maxHourliesToShow: 3,
+    showDailyForecast: true,
+    maxDailiesToShow: 3,
+    includeTodayInDailyForecast: false,
+    showPrecipitation: true,
+    concise: true,
+    compactForecastWind: false,
+    showWind: true,
+    showFeelsLike: true,
+    showPrecipitationStartStop: false,
+    showAttribution: true,
+    showLastUpdate: true,
+    showCurrentConditionsLastUpdate: true,
+    showForecastLastUpdate: true,
+    showExpires: true,
+    showSource: true,
+    attributionText: "",
+    iconset: "1c",
+    mainIconset: "1c",
+    useAnimatedIcons: true,
+    animateMainIconOnly: true,
+    colored: true,
+    forecastLayout: "tiled",
+    showInlineIcons: true,
+    mainIconSize: 100,
+    forecastTiledIconSize: 70,
+    forecastTableIconSize: 30,
+    updateFadeSpeed: 500,
+    label_gust: "max",
+    label_high: "H",
+    label_low: "L",
+    // Time formats follow MagicMirror's global timeFormat (12 or 24)
+    label_timeFormat: config.timeFormat === 12 ? "h a" : "HH:mm",
+    label_sunTimeFormat: config.timeFormat === 12 ? "h:mm a" : "HH:mm",
+    label_lastUpdateTimeFormat: config.timeFormat === 12 ? "h:mm a" : "HH:mm",
+    label_humidity: "Humidity",
+    label_dewPoint: "Dew Point",
+    label_sunrise: "Sunrise",
+    label_sunset: "Sunset",
+    label_barometricPressure: "Pressure",
+    label_uvIndex: "UV Index",
+    label_visibility: "Visibility",
+    label_lastUpdate: "Updated",
+    label_currentConditionsUpdate: "Updated",
+    label_forecastUpdate: "Forecast Updated",
+    label_expires: "Expires",
+    label_source: "Source:",
+    label_offline: "offline",
+    label_days: ["Sun", "Mon", "Tue", "Wed", "Thur", "Fri", "Sat"],
+    label_ordinals: [
+      "N",
+      "NNE",
+      "NE",
+      "ENE",
+      "E",
+      "ESE",
+      "SE",
+      "SSE",
+      "S",
+      "SSW",
+      "SW",
+      "WSW",
+      "W",
+      "WNW",
+      "NW",
+      "NNW"
+    ],
+    moduleTimestampIdPrefix: "WEATHERDOTCOM_FORECAST_TIMESTAMP_"
+  },
+
+  // Fallback location of the icon sets bundled with MMM-Weatherdotcom, used
+  // until the first WEATHERDOTCOM_DATA notification provides it
+  defaultIconPath: "modules/MMM-Weatherdotcom/icons",
+
+  validLayouts: ["tiled", "table"],
+
+  getScripts: function () {
+    return ["moment.js", this.file("skycons.js")];
+  },
+
+  getStyles: function () {
+    return ["MMM-WeatherdotcomForecast.css"];
+  },
+
+  getTemplate: function () {
+    return "MMM-WeatherdotcomForecast.njk";
+  },
+
+  /*
+      Data object provided to the Nunjucks template. The template does not
+      do any data minipulation; the strings provided here are displayed as-is.
+      The only logic in the template are conditional blocks that determine if
+      a certain section should be displayed, and simple loops for the hourly
+      and daily forecast.
+     */
+  getTemplateData: function () {
+    return {
+      phrases: {
+        loading: this.translate("LOADING")
+      },
+      loading: this.formattedWeatherData === null ? true : false,
+      config: this.config,
+      forecast: this.formattedWeatherData,
+      inlineIcons: {
+        rain: this.generateIconSrc("i-rain"),
+        snow: this.generateIconSrc("i-snow"),
+        wind: this.generateIconSrc("i-wind"),
+        humidity: this.generateIconSrc("i-humidity"),
+        dewPoint: this.generateIconSrc("i-dewpoint"),
+        sunrise: this.generateIconSrc("i-sunrise"),
+        sunset: this.generateIconSrc("i-sunset"),
+        barometricPressure: this.generateIconSrc("i-pressure"),
+        uvIndex: this.generateIconSrc("i-uv"),
+        visibility: this.generateIconSrc("i-visibility")
+      },
+      animatedIconSizes: {
+        main: this.config.mainIconSize,
+        forecast:
+          this.config.forecastLayout === "tiled"
+            ? this.config.forecastTiledIconSize
+            : this.config.forecastTableIconSize
+      },
+      moduleTimestampIdPrefix: this.config.moduleTimestampIdPrefix,
+      identifier: this.identifier,
+      timeStamp: this.dataRefreshTimeStamp,
+      status: this.status
+    };
+  },
+
+  start: function () {
+    Log.info(`Starting module: ${this.name}`);
+
+    this.weatherData = null;
+    this.iconIdCounter = 0;
+    this.formattedWeatherData = null;
+    this.animatedIconDrawTimer = null;
+    this.status = null;
+    this.location = { lat: null, lon: null };
+    this.iconPath = this.defaultIconPath;
+
+    /*
+          Optionally, Dark Sky's Skycons animated icon
+          set can be used.  If so, it is drawn to the DOM
+          and animated on demand as opposed to being
+          contained in animated images such as GIFs or SVGs.
+          This initializes the colours for the icons to use.
+         */
+    if (this.config.useAnimatedIcons) {
+      // eslint-disable-next-line no-undef
+      this.skycons = new Skycons({
+        monochrome: false,
+        colors: {
+          main: "#FFFFFF",
+          moon: this.config.colored ? "#FFFDC2" : "#FFFFFF",
+          fog: "#FFFFFF",
+          fogbank: "#FFFFFF",
+          cloud: this.config.colored ? "#BEBEBE" : "#999999",
+          snow: "#FFFFFF",
+          leaf: this.config.colored ? "#98D24D" : "#FFFFFF",
+          rain: this.config.colored ? "#7CD5FF" : "#FFFFFF",
+          sun: this.config.colored ? "#FFD550" : "#FFFFFF"
+        }
+      });
+    }
+
+    //sanitize optional parameters
+    if (this.validLayouts.indexOf(this.config.forecastLayout) === -1) {
+      this.config.forecastLayout = "tiled";
+    }
+    if (!this.iconsets[this.config.iconset]) {
+      this.config.iconset = "1c";
+    }
+    if (!this.iconsets[this.config.mainIconset]) {
+      this.config.mainIconset = this.config.iconset;
+    }
+    this.sanitizeNumbers([
+      "hourlyForecastInterval",
+      "maxHourliesToShow",
+      "maxDailiesToShow",
+      "maxAlertsToShow",
+      "mainIconSize",
+      "forecastIconSize",
+      "updateFadeSpeed",
+      "animatedIconPlayDelay"
+    ]);
+
+    //sanitize extraCurrentConditions
+    if (
+      typeof this.config.extraCurrentConditions !== "object" ||
+      this.config.extraCurrentConditions === null
+    ) {
+      this.config.extraCurrentConditions = Object.assign(
+        {},
+        this.defaults.extraCurrentConditions
+      );
+    } else {
+      this.config.extraCurrentConditions = Object.assign(
+        {},
+        this.defaults.extraCurrentConditions,
+        this.config.extraCurrentConditions
+      );
+    }
+
+    //force icon set to mono version whern config.coloured = false
+    if (this.config.colored === false) {
+      this.config.iconset = this.config.iconset.replace("c", "m");
+    }
+
+    // Weather data is polled by MMM-Weatherdotcom and arrives as the
+    // WEATHERDOTCOM_DATA notification
+  },
+
+  /*
+    Calculates Sunrise and Sunset times given latitude, longitude, and date.
+    Uses SunCalc if available, or a precise astronomical calculation fallback.
+  */
+  calculateSunTimes: function (latitude, longitude, targetDate) {
+    var lat = parseFloat(latitude);
+    var lon = parseFloat(longitude);
+    if (isNaN(lat) || isNaN(lon)) {
+      return { sunrise: null, sunset: null };
+    }
+
+    var d = targetDate ? new Date(targetDate) : new Date();
+
+    try {
+      if (typeof SunCalc !== "undefined" && SunCalc.getTimes) {
+        var times = SunCalc.getTimes(d, lat, lon);
+        return {
+          sunrise: times.sunrise,
+          sunset: times.sunset
+        };
+      }
+    } catch (e) {
+      // ignore and fallback
+    }
+
+    // NOAA Solar Calculations formula approximation
+    var rad = Math.PI / 180;
+    var deg = 180 / Math.PI;
+    var startOfYear = new Date(d.getFullYear(), 0, 0);
+    var diff = d - startOfYear;
+    var dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
+    var lngHour = lon / 15;
+
+    function calcSunTime(isSunrise) {
+      var t = isSunrise
+        ? dayOfYear + (6 - lngHour) / 24
+        : dayOfYear + (18 - lngHour) / 24;
+      var M = 0.9856 * t - 3.289;
+      var L =
+        M +
+        1.916 * Math.sin(M * rad) +
+        0.02 * Math.sin(2 * M * rad) +
+        282.634;
+      L = ((L % 360) + 360) % 360;
+      var RA = deg * Math.atan(0.91764 * Math.tan(L * rad));
+      RA = ((RA % 360) + 360) % 360;
+      var Lquadrant = Math.floor(L / 90) * 90;
+      var RAquadrant = Math.floor(RA / 90) * 90;
+      RA = RA + (Lquadrant - RAquadrant);
+      RA = RA / 15;
+      var sinDec = 0.39782 * Math.sin(L * rad);
+      var cosDec = Math.cos(Math.asin(sinDec));
+      var cosH =
+        (Math.cos(90.833 * rad) - sinDec * Math.sin(lat * rad)) /
+        (cosDec * Math.cos(lat * rad));
+      if (cosH > 1 || cosH < -1) return null;
+      var H = isSunrise
+        ? (360 - deg * Math.acos(cosH)) / 15
+        : (deg * Math.acos(cosH)) / 15;
+      var T = H + RA - 0.06571 * t - 6.622;
+      var UT = (T - lngHour) % 24;
+      if (UT < 0) UT += 24;
+      var hours = Math.floor(UT);
+      var minutes = Math.floor((UT - hours) * 60);
+      var seconds = Math.floor(((UT - hours) * 60 - minutes) * 60);
+      var res = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      res.setUTCHours(hours, minutes, seconds);
+      return res;
+    }
+
+    return {
+      sunrise: calcSunTime(true),
+      sunset: calcSunTime(false)
+    };
+  },
+
+  notificationReceived: function (notification, payload) {
+    if (notification === "ALL_MODULES_STARTED") {
+      // Ask MMM-Weatherdotcom for data it received before this module started
+      this.sendNotification("WEATHERDOTCOM_REQUEST");
+    } else if (notification === "WEATHERDOTCOM_DATA") {
+      this.receiveWeather(payload);
+    }
+  },
+
+  /*
+    Handles the data shared by MMM-Weatherdotcom. The payload carries the raw
+    data of whichever source it came from (Weather.com, or NOAA as a backup)
+    and the source status shown in the attribution line.
+  */
+  receiveWeather: function (payload) {
+    if (!payload || !payload.source) {
+      Log.warn(
+        `${this.name}: no weather data from MMM-Weatherdotcom${
+          payload && payload.error ? `: ${payload.error}` : ""
+        }`
+      );
+      return;
+    }
+
+    if (payload.iconPath) {
+      this.iconPath = payload.iconPath;
+    }
+    if (payload.location) {
+      this.location = payload.location;
+    }
+    this.status = {
+      source: payload.source,
+      sourceLabel: payload.sourceLabel,
+      isFallback: !!payload.isFallback,
+      stale: !!payload.stale,
+      error: payload.error || null
+    };
+
+    //clear animated icon cache
+    if (this.config.useAnimatedIcons) {
+      this.clearIcons();
+    }
+
+    //process weather data
+    this.dataRefreshTimeStamp = moment().format("x");
+    try {
+      if (payload.source === "weathercom") {
+        this.weatherData = { source: "weathercom" };
+        this.formattedWeatherData = this.processWeatherComData(
+          payload.weathercom,
+          payload
+        );
+      } else {
+        this.loadNOAAData(payload.noaa || {});
+        this.preProcessWeatherData();
+        this.formattedWeatherData = this.processWeatherData();
+      }
+    } catch (e) {
+      Log.error(`${this.name}: failed to process weather data: ${e.message}`);
+      return;
+    }
+
+    this.updateDom(this.config.updateFadeSpeed);
+
+    /*
+            Start icon playback. We need to wait until the DOM update
+            is complete before drawing and starting the icons.
+
+            The DOM object has a timestamp embedded that we will look
+            for.  If the timestamp can be found then the DOM has been
+            fully updated.
+          */
+    if (this.config.useAnimatedIcons) {
+      var self = this;
+      clearInterval(this.animatedIconDrawTimer);
+      this.animatedIconDrawTimer = setInterval(function () {
+        var elToTest = document.getElementById(
+          self.config.moduleTimestampIdPrefix + self.identifier
+        );
+        if (
+          elToTest !== null &&
+          elToTest.getAttribute("data-timestamp") ===
+            self.dataRefreshTimeStamp
+        ) {
+          clearInterval(self.animatedIconDrawTimer);
+          self.playIcons(self);
+        }
+      }, 100);
+    }
+  },
+
+  /*
+    Loads the raw NOAA data (forecast, hourly forecast, gridpoint data,
+    latest observation and alerts) into this.weatherData.
+  */
+  loadNOAAData: function (noaa) {
+    var parsedForecast =
+      typeof noaa.forecast === "string"
+        ? JSON.parse(noaa.forecast)
+        : noaa.forecast;
+    var parsedHourly =
+      typeof noaa.forecastHourly === "string"
+        ? JSON.parse(noaa.forecastHourly)
+        : noaa.forecastHourly;
+    var parsedGrid =
+      typeof noaa.forecastGridData === "string"
+        ? JSON.parse(noaa.forecastGridData)
+        : noaa.forecastGridData;
+
+    var parsedObservation =
+      typeof noaa.observation === "string"
+        ? JSON.parse(noaa.observation)
+        : noaa.observation;
+
+    var parsedAlerts = null;
+    if (noaa.alerts) {
+      try {
+        parsedAlerts =
+          typeof noaa.alerts === "string"
+            ? JSON.parse(noaa.alerts)
+            : noaa.alerts;
+      } catch (e) {
+        parsedAlerts = null;
+      }
+    }
+
+    var rawAlerts = [];
+    if (parsedAlerts) {
+      if (Array.isArray(parsedAlerts.features)) {
+        rawAlerts = parsedAlerts.features;
+      } else if (Array.isArray(parsedAlerts)) {
+        rawAlerts = parsedAlerts;
+      }
+    }
+
+    var observationTime =
+      parsedObservation &&
+      parsedObservation.properties &&
+      parsedObservation.properties.timestamp;
+
+    var generatedAt =
+      (parsedHourly &&
+        parsedHourly.properties &&
+        parsedHourly.properties.generatedAt) ||
+      (parsedForecast &&
+        parsedForecast.properties &&
+        parsedForecast.properties.generatedAt);
+
+    // Only times published by NOAA are used, never the time of the request
+    var updateTime =
+      (parsedForecast &&
+        parsedForecast.properties &&
+        parsedForecast.properties.updateTime) ||
+      (parsedHourly &&
+        parsedHourly.properties &&
+        parsedHourly.properties.updateTime) ||
+      (parsedGrid &&
+        parsedGrid.properties &&
+        parsedGrid.properties.updateTime) ||
+      null;
+
+    this.weatherData = {
+      daily: parsedForecast ? parsedForecast.properties.periods : [],
+      hourly: parsedHourly ? parsedHourly.properties.periods : [],
+      grid: parsedGrid ? parsedGrid.properties : {},
+      alerts: rawAlerts,
+      updateTime: updateTime,
+      generatedAt: generatedAt,
+      observationTime: observationTime,
+      observation: parsedObservation
+    };
+  },
+
+  accumulateValueForTimestamp: function (targetTimestamp, arr) {
+    if (!targetTimestamp || !Array.isArray(arr)) return undefined;
+    var target = moment.parseZone(targetTimestamp);
+    if (!target.isValid()) return undefined;
+
+    // accumulate values for entries whose start date equals the target date
+    var targetDayStart = target.clone().startOf("day");
+    var accumulation = 0;
+    var foundAny = false;
+
+    for (var i = 0; i < arr.length; i++) {
+      var entry = arr[i];
+      if (!entry || !entry.validTime) continue;
+
+      var parts = entry.validTime.split("/");
+      var startMoment = moment.parseZone(parts[0]);
+      if (!startMoment.isValid()) continue;
+
+      // treat each matching start date as part of that day's 24h accumulation
+      if (startMoment.isSame(targetDayStart, "day")) {
+        var val = entry.value;
+        var num = parseFloat(String(val));
+        if (!isNaN(num)) {
+          accumulation += num;
+          foundAny = true;
+        }
+      }
+    }
+    return foundAny ? accumulation : undefined;
+  },
+
+  findValueForTimestamp: function (targetTimestamp, arr) {
+    if (!targetTimestamp || !Array.isArray(arr)) return undefined;
+    var target = new Date(targetTimestamp);
+    if (isNaN(target.getTime())) return undefined;
+
+    var result = undefined;
+
+    for (var i = 0; i < arr.length; i++) {
+      var entry = arr[i];
+      if (!entry || !entry.validTime) continue;
+
+      try {
+        // Handle interval where the end is an ISO duration, e.g. "2025-08-29T10:00:00-04:00/PT3H"
+        var parts = entry.validTime.split("/");
+        if (
+          parts.length === 2 &&
+          parts[1] &&
+          parts[1].charAt(0).toUpperCase() === "P"
+        ) {
+          var startMoment = moment.parseZone(parts[0]);
+          if (startMoment.isValid()) {
+            var dur = moment.duration(parts[1]);
+
+            if (dur && dur.asMilliseconds() > 0) {
+              var endMoment = startMoment.clone().add(dur);
+              if (
+                moment.parseZone(target).isSameOrAfter(startMoment) &&
+                moment.parseZone(target).isBefore(endMoment)
+              ) {
+                return entry.value;
+              } else {
+                // not in this entry's duration, continue to next entry
+                continue;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // ignore parse errors and fall back to existing handling below
+      }
+    }
+    return undefined;
+  },
+
+  findValueForTimestampMatchingDay: function (targetTimestamp, arr) {
+    if (!targetTimestamp || !Array.isArray(arr)) return undefined;
+    var target = new Date(targetTimestamp);
+    if (isNaN(target.getTime())) return undefined;
+
+    var result = undefined;
+
+    for (var i = 0; i < arr.length; i++) {
+      var entry = arr[i];
+      if (!entry || !entry.validTime) continue;
+
+      try {
+        // Handle interval where the end is an ISO duration, e.g. "2025-08-29T10:00:00-04:00/PT3H"
+        var parts = entry.validTime.split("/");
+        if (
+          parts.length === 2 &&
+          parts[1] &&
+          parts[1].charAt(0).toUpperCase() === "P"
+        ) {
+          var startMoment = moment.parseZone(parts[0]);
+          if (startMoment.isValid()) {
+            var targetMoment = moment.parseZone(target);
+            if (!targetMoment.isValid()) {
+              continue;
+            }
+            // Compare calendar dates as strings (timezone-aware)
+            // Extract "YYYY-MM-DD" from each timestamp in its own timezone
+            var startDate = startMoment.format("YYYY-MM-DD");
+            var targetDate = targetMoment.format("YYYY-MM-DD");
+            if (startDate === targetDate) {
+              return entry.value;
+            } else {
+              continue;
+            }
+          }
+        }
+      } catch (e) {
+        // ignore parse errors and fall back to existing handling below
+      }
+    }
+    return undefined;
+  },
+
+  convertTemperature: function (value, toCelsius) {
+    if (value === null || typeof value === "undefined") {
+      return value;
+    }
+
+    var num = parseFloat(String(value));
+    if (isNaN(num)) return value;
+
+    if (toCelsius) {
+      // input is Fahrenheit -> convert to Celsius, up to 1 decimal place
+      var c = (num - 32) * (5 / 9);
+      var rounded = Math.round(c * 10) / 10; // one decimal precision
+      // return without unnecessary trailing .0 (i.e., "up to one decimal")
+      return Number.isInteger(rounded)
+        ? rounded.toString()
+        : rounded.toString();
+    }
+
+    // input is Celsius -> convert to Fahrenheit, no decimal places
+    var f = Math.round(num * (9 / 5) + 32);
+    return f.toString();
+  },
+
+  convertDistance: function (val, toImperial) {
+    if (val === null || typeof val === "undefined") {
+      return val;
+    }
+
+    var actual = parseFloat(String(val));
+    if (isNaN(actual)) {
+      return actual;
+    }
+
+    // 1 inch = 25.4 mm
+    var final = toImperial ? actual / 25.4 : actual * 25.4;
+
+    // Round to two decimal places and return as string
+    return (Math.round(final * 100) / 100).toString();
+  },
+
+  convertSpeed: function (val, toImperial) {
+    if (val === null || typeof val === "undefined") {
+      return val;
+    }
+
+    var actual = parseFloat(String(val));
+    if (isNaN(actual)) {
+      return actual;
+    }
+
+    // toImperial === true: input is km/h -> convert to mph
+    // toImperial === false: input is mph -> convert to km/h
+    var final = toImperial ? actual / 1.609344 : actual * 1.609344;
+
+    // 0 decimals precision, return as string for consistent concatenation elsewhere
+    return Math.round(final).toString();
+  },
+
+  convertIfNeeded: function (val, unit) {
+    if (
+      (unit === "wmoUnit:degC" || unit === "C") &&
+      this.config.units === "imperial"
+    ) {
+      val = this.convertTemperature(val, false);
+    } else if (
+      (unit === "wmoUnit:degF" || unit === "F") &&
+      this.config.units === "metric"
+    ) {
+      val = this.convertTemperature(val, true);
+    } else if (unit === "wmoUnit:in" && this.config.units === "metric") {
+      val = this.convertDistance(val, false);
+    } else if (unit === "wmoUnit:mm" && this.config.units === "imperial") {
+      val = this.convertDistance(val, true);
+    } else if (unit === "wmoUnit:km_h-1" && this.config.units === "imperial") {
+      val = this.convertSpeed(val, true);
+    } else if (unit === "wmoUnit:km_h-1" && this.config.units === "metric") {
+      val = this.convertSpeed(val, false);
+    }
+
+    return val;
+  },
+
+  getGridValueMatchingDay: function (startTime, gridKey) {
+    if (
+      !this.weatherData ||
+      !this.weatherData.grid ||
+      !this.weatherData.grid[gridKey] ||
+      !Array.isArray(this.weatherData.grid[gridKey].values)
+    ) {
+      return undefined;
+    }
+
+    var val = this.findValueForTimestampMatchingDay(
+      startTime,
+      this.weatherData.grid[gridKey].values
+    );
+
+    return this.convertIfNeeded(val, this.weatherData.grid[gridKey].uom);
+  },
+
+  getGridValueWithinDuration: function (startTime, gridKey) {
+    if (
+      !this.weatherData ||
+      !this.weatherData.grid ||
+      !this.weatherData.grid[gridKey] ||
+      !Array.isArray(this.weatherData.grid[gridKey].values)
+    ) {
+      return undefined;
+    }
+
+    var val = this.findValueForTimestamp(
+      startTime,
+      this.weatherData.grid[gridKey].values
+    );
+
+    return this.convertIfNeeded(val, this.weatherData.grid[gridKey].uom);
+  },
+
+  accumulateGridValue: function (startTime, gridKey) {
+    if (
+      !this.weatherData ||
+      !this.weatherData.grid ||
+      !this.weatherData.grid[gridKey] ||
+      !Array.isArray(this.weatherData.grid[gridKey].values)
+    ) {
+      return undefined;
+    }
+
+    var val = this.accumulateValueForTimestamp(
+      startTime,
+      this.weatherData.grid[gridKey].values
+    );
+
+    return this.convertIfNeeded(val, this.weatherData.grid[gridKey].uom);
+  },
+
+  calculateFeelsLike: function (temp, wind, humidityPercent) {
+    // temp: number (F if units !== 'metric', C if units === 'metric')
+    // wind: number (mph if units !== 'metric', km/h if units === 'metric')
+    // humidityPercent: number (0-100)
+    var t = parseFloat(String(temp));
+    var v = parseFloat(String(wind));
+    var h =
+      typeof humidityPercent === "number"
+        ? humidityPercent
+        : parseFloat(String(humidityPercent));
+
+    if (isNaN(t)) return temp;
+    if (isNaN(v)) v = 0;
+    if (isNaN(h)) h = 50;
+
+    var isMetric = this.config && this.config.units === "metric";
+
+    // Convert metric inputs to Fahrenheit and mph for formula calculation
+    var tempF = isMetric ? t * (9 / 5) + 32 : t;
+    var windMph = isMetric ? v / 1.609344 : v;
+
+    var feelsF = tempF;
+
+    // Wind Chill applies when temp ≤ 50°F and wind ≥ 3 mph
+    if (tempF <= 50 && windMph >= 3) {
+      feelsF =
+        35.74 +
+        0.6215 * tempF -
+        35.75 * Math.pow(windMph, 0.16) +
+        0.4275 * tempF * Math.pow(windMph, 0.16);
+    }
+    // Heat Index applies when temp ≥ 80°F and humidity ≥ 40%
+    else if (tempF >= 80 && h >= 40) {
+      var T = tempF;
+      var R = h;
+      feelsF =
+        -42.379 +
+        2.04901523 * T +
+        10.14333127 * R -
+        0.22475541 * T * R -
+        0.00683783 * T * T -
+        0.05481717 * R * R +
+        0.00122874 * T * T * R +
+        0.00085282 * T * R * R -
+        0.00000199 * T * T * R * R;
+    }
+
+    // Convert back to metric if needed
+    var feels = isMetric ? (feelsF - 32) * (5 / 9) : feelsF;
+
+    return Math.round(feels * 10) / 10; // one decimal place
+  },
+
+  /*
+    Calculate min and max temperatures from hourly data for a specific day.
+    Returns an object with minTemp and maxTemp properties, or null values if no data found.
+  */
+  calculateDailyMinMaxFromHourly: function (dailyStartTime) {
+    var result = { minTemp: null, maxTemp: null };
+
+    var dailyStart = moment.parseZone(dailyStartTime);
+    if (!dailyStart.isValid() || !Array.isArray(this.weatherData.hourly)) {
+      return result;
+    }
+
+    for (var h = 0; h < this.weatherData.hourly.length; h++) {
+      var hourlyEntry = this.weatherData.hourly[h];
+      if (!hourlyEntry || !hourlyEntry.startTime) continue;
+
+      var hourlyStart = moment.parseZone(hourlyEntry.startTime);
+      if (!hourlyStart.isValid()) continue;
+
+      // Check if this hourly entry belongs to the same day
+      if (
+        hourlyStart.format("YYYY-MM-DD") === dailyStart.format("YYYY-MM-DD")
+      ) {
+        var temp = parseFloat(hourlyEntry.temperature);
+        if (!isNaN(temp)) {
+          if (result.minTemp === null || temp < result.minTemp) {
+            result.minTemp = temp;
+          }
+          if (result.maxTemp === null || temp > result.maxTemp) {
+            result.maxTemp = temp;
+          }
+        }
+      }
+    }
+
+    return result;
+  },
+
+  /*
+    We need to pre-process the dailies and hourly to augment the data there based on grid data.
+    */
+  preProcessWeatherData: function () {
+    if (Array.isArray(this.weatherData.hourly)) {
+      // Trim hourly array so it begins at the start of the current hour
+      var hourStart = moment().startOf("hour");
+      var startIndex = null;
+      for (var k = 0; k < this.weatherData.hourly.length; k++) {
+        var entry = this.weatherData.hourly[k];
+        if (!entry || !entry.startTime) continue;
+        var startMoment = moment.parseZone(entry.startTime);
+        if (!startMoment.isValid()) continue;
+
+        // Prefer an entry that exactly matches the current hour; otherwise take the first entry after the hour start
+        if (
+          startMoment.isSame(hourStart, "hour") ||
+          startMoment.isAfter(hourStart)
+        ) {
+          startIndex = k;
+          break;
+        }
+      }
+
+      // If we found a later entry, trim the array so it begins at that index
+      if (startIndex !== null && startIndex > 0) {
+        this.weatherData.hourly = this.weatherData.hourly.slice(startIndex);
+      }
+
+      // IMPORTANT: From this point on, we dropped hourly data. So whatever
+      // totals had to be calculated for dailies, they should've happened before.
+
+      // For hourly, we need to augment rain, snow accumulation and gust data.
+      for (var j = 0; j < this.weatherData.hourly.length; j++) {
+        var hourly = this.weatherData.hourly[j];
+
+        hourly.temperature = this.convertIfNeeded(
+          hourly.temperature,
+          hourly.temperatureUnit
+        );
+
+        // IMPORTANT: Commonly NOAA will only have 2-3 days out of data here, so
+        // this may come out undefined even though it does provide a % chance of rain.
+        hourly.snowAccumulation = this.getGridValueWithinDuration(
+          this.weatherData.hourly[j].startTime,
+          "iceAccumulation"
+        );
+
+        // IMPORTANT: Commonly NOAA will only have 2-3 days out of data here, so
+        // this may come out undefined even though it does provide a % chance of rain.
+        hourly.rainAccumulation = this.getGridValueWithinDuration(
+          this.weatherData.hourly[j].startTime,
+          "quantitativePrecipitation"
+        );
+
+        hourly.windGust = this.getGridValueWithinDuration(
+          this.weatherData.hourly[j].startTime,
+          "windGust"
+        );
+
+        hourly.feelsLike = this.calculateFeelsLike(
+          hourly.temperature,
+          hourly.windGust,
+          hourly.relativeHumidity.value
+        );
+      }
+    }
+
+    if (Array.isArray(this.weatherData.daily)) {
+      // For daily, we need to augment min, max temperatures, rain, snow accumulation and gust data.
+      for (var i = 0; i < this.weatherData.daily.length; i++) {
+        var daily = this.weatherData.daily[i];
+
+        daily.temperature = this.convertIfNeeded(
+          daily.temperature,
+          daily.temperatureUnit
+        );
+
+        // Calculate min/max temperatures from hourly data for this day
+        var temps = this.calculateDailyMinMaxFromHourly(daily.startTime);
+
+        // Get grid data values
+        var gridMaxTemp = this.getGridValueMatchingDay(
+          this.weatherData.daily[i].startTime,
+          "maxTemperature"
+        );
+        var gridMinTemp = this.getGridValueMatchingDay(
+          this.weatherData.daily[i].startTime,
+          "minTemperature"
+        );
+
+        // Convert grid values to numbers for comparison
+        var gridMaxNum =
+          gridMaxTemp !== undefined ? parseFloat(gridMaxTemp) : null;
+        var gridMinNum =
+          gridMinTemp !== undefined ? parseFloat(gridMinTemp) : null;
+
+        // Determine final max temperature: use the maximum of available values
+        if (
+          temps.maxTemp !== null &&
+          gridMaxNum !== null &&
+          !isNaN(gridMaxNum)
+        ) {
+          daily.maxTemperature = Math.max(temps.maxTemp, gridMaxNum).toString();
+        } else if (temps.maxTemp !== null) {
+          daily.maxTemperature = temps.maxTemp.toString();
+        } else if (gridMaxTemp !== undefined) {
+          daily.maxTemperature =
+            gridMaxNum !== null && !isNaN(gridMaxNum)
+              ? gridMaxNum.toString()
+              : gridMaxTemp.toString();
+        } else {
+          daily.maxTemperature = undefined;
+        }
+
+        // Determine final min temperature: use the minimum of available values
+        if (
+          temps.minTemp !== null &&
+          gridMinNum !== null &&
+          !isNaN(gridMinNum)
+        ) {
+          daily.minTemperature = Math.min(temps.minTemp, gridMinNum).toString();
+        } else if (temps.minTemp !== null) {
+          daily.minTemperature = temps.minTemp.toString();
+        } else if (gridMinTemp !== undefined) {
+          daily.minTemperature =
+            gridMinNum !== null && !isNaN(gridMinNum)
+              ? gridMinNum.toString()
+              : gridMinTemp.toString();
+        } else {
+          daily.minTemperature = undefined;
+        }
+
+        // IMPORTANT: Commonly NOAA will only have 2-3 days out of data here, so
+        // this may come out undefined even though it does provide a % chance of rain.
+        daily.snowAccumulation = this.accumulateGridValue(
+          this.weatherData.daily[i].startTime,
+          "iceAccumulation"
+        );
+
+        // IMPORTANT: Commonly NOAA will only have 2-3 days out of data here, so
+        // this may come out undefined even though it does provide a % chance of rain.
+        daily.rainAccumulation = this.accumulateGridValue(
+          this.weatherData.daily[i].startTime,
+          "quantitativePrecipitation"
+        );
+      }
+    }
+  },
+
+  /*
+      Analyzes hourly forecast data to detect when precipitation (rain or snow) is expected to start or stop.
+      Returns an object with the hour and type of change, or null if no significant change is detected.
+
+      hours is a list of { iconName, startTime, endTime } starting with the
+      current hour. When it is not given, the NOAA hourly forecast is used.
+    */
+  analyzePrecipitationChange: function (hours) {
+    if (!this.config.showPrecipitationStartStop) {
+      return null;
+    }
+    if (!hours) {
+      if (!this.weatherData || !Array.isArray(this.weatherData.hourly)) {
+        return null;
+      }
+      var self = this;
+      hours = this.weatherData.hourly.map(function (h) {
+        return {
+          iconName: self.convertNOAAtoIcon(h.icon),
+          startTime: h.startTime,
+          endTime: h.endTime
+        };
+      });
+    }
+    if (hours.length < 2) {
+      return null;
+    }
+
+    /**
+     * Map a NOAA icon name to a coarse precipitation type.
+     *
+     * @param {string} iconName NOAA icon name (e.g., "rain", "snow", "tsra").
+     * @returns {string|null} "rain" | "snow" | "sleet" | null when no precip is implied.
+     */
+    function getPrecipTypeFromIcon(iconName) {
+      if (!iconName) return null;
+      var lower = iconName.toLowerCase();
+
+      // Treat sleet/freezing rain/ice as its own type so messaging is accurate.
+      if (
+        lower.indexOf("sleet") !== -1 ||
+        lower.indexOf("freezing") !== -1 ||
+        lower.indexOf("ice") !== -1
+      ) {
+        return "sleet";
+      }
+
+      if (lower.indexOf("snow") !== -1 || lower.indexOf("blizzard") !== -1) {
+        return "snow";
+      }
+
+      // rain, showers, thunderstorm (tsra)
+      if (
+        lower.indexOf("rain") !== -1 ||
+        lower.indexOf("showers") !== -1 ||
+        lower.indexOf("thunder") !== -1 ||
+        lower.indexOf("tsra") !== -1
+      ) {
+        return "rain";
+      }
+
+      return null;
+    }
+
+    /**
+     * Render a user-facing label for a given precipitation type.
+     *
+     * @param {string|null} precipType One of "rain", "snow", "sleet", or null/other.
+     * @returns {string} Capitalized label suitable for inline messaging.
+     */
+    function formatPrecipLabel(precipType) {
+      if (precipType === "snow") return "Snow";
+      if (precipType === "rain") return "Rain";
+      if (precipType === "sleet") return "Sleet";
+      return "Precipitation";
+    }
+
+    var currentHour = hours[0];
+    var currentIcon = currentHour.iconName;
+    var currentPrecipType = getPrecipTypeFromIcon(currentIcon);
+    var currentHasPrecip = !!currentPrecipType;
+    var now = moment();
+
+    for (var i = 1; i < Math.min(hours.length, 24); i++) {
+      var futureHour = hours[i];
+      var futureIcon = futureHour.iconName;
+      var futurePrecipType = getPrecipTypeFromIcon(futureIcon);
+      var futureHasPrecip = !!futurePrecipType;
+
+      if (!currentHasPrecip && futureHasPrecip) {
+        var precipType = futurePrecipType;
+        var futureMoment = futureHour.startTime
+          ? moment.parseZone(futureHour.startTime)
+          : null;
+        if (!futureMoment || !futureMoment.isValid()) {
+          // if we can't determine a valid future time, skip this candidate
+          continue;
+        }
+
+        // Only show a start message if the predicted start is strictly in the future
+        if (!futureMoment.isAfter(now)) {
+          continue;
+        }
+
+        var timeStr = futureMoment.format(this.config.label_timeFormat);
+        var isTomorrow = !futureMoment.isSame(now, "day");
+        var tomorrowStr = isTomorrow ? " tomorrow" : "";
+        var label = formatPrecipLabel(precipType);
+        return {
+          type: "start",
+          precipType: precipType,
+          time: timeStr,
+          message: `${label} expected at ${timeStr}${tomorrowStr}`
+        };
+      } else if (currentHasPrecip && !futureHasPrecip) {
+        // Prefer the end of the last hourly period that had precipitation.
+        // If the hourly period provides an explicit `endTime`, use that.
+        // Otherwise fall back to startTime + 1 hour, and as a last resort use the next period's startTime.
+        var lastPrecipIndex = Math.max(0, i - 1);
+        var lastPrecipHour = hours[lastPrecipIndex];
+        var stopMoment = null;
+
+        if (lastPrecipHour && lastPrecipHour.endTime) {
+          stopMoment = moment.parseZone(lastPrecipHour.endTime);
+        } else if (lastPrecipHour && lastPrecipHour.startTime) {
+          stopMoment = moment
+            .parseZone(lastPrecipHour.startTime)
+            .add(1, "hour");
+        } else if (futureHour.startTime) {
+          stopMoment = moment.parseZone(futureHour.startTime);
+        }
+
+        // If we couldn't determine a valid stop moment, skip this candidate
+        if (!stopMoment || !stopMoment.isValid()) {
+          continue;
+        }
+
+        // Only show a stop message if the predicted stop is strictly in the future
+        if (!stopMoment.isAfter(now)) {
+          continue;
+        }
+
+        var stopTimeStr = stopMoment.format(this.config.label_timeFormat);
+        var stopIsTomorrow = !stopMoment.isSame(now, "day");
+        var stopTomorrowStr = stopIsTomorrow ? " tomorrow" : "";
+        var stopLabel = formatPrecipLabel(currentPrecipType);
+
+        return {
+          type: "stop",
+          precipType: currentPrecipType,
+          time: stopTimeStr,
+          message: `${stopLabel} ending by ${stopTimeStr}${stopTomorrowStr}`
+        };
+      }
+    }
+
+    return null;
+  },
+
+  /*
+      This prepares the data to be used by the Nunjucks template.  The template does not do any logic other
+      if statements to determine if a certain section should be displayed, and a simple loop to go through
+      the houly / daily forecast items.
+    */
+  processWeatherData: function () {
+    var summary;
+    if (this.config.concise) {
+      summary = this.weatherData.daily[0].shortForecast;
+    } else {
+      summary = this.weatherData.daily[0].detailedForecast;
+    }
+
+    var hourlies = [];
+    if (this.config.showHourlyForecast) {
+      var displayCounter = 0;
+      var currentIndex = this.config.hourlyForecastInterval;
+      while (displayCounter < this.config.maxHourliesToShow) {
+        if (!this.weatherData.hourly || !this.weatherData.hourly[currentIndex]) {
+          break;
+        }
+
+        hourlies.push(
+          this.forecastHourlyFactory(
+            this.weatherData.hourly[currentIndex],
+            "hourly",
+            displayCounter === 0
+          )
+        );
+
+        currentIndex += this.config.hourlyForecastInterval;
+        displayCounter++;
+      }
+    }
+
+    var dailies = [];
+    if (this.config.showDailyForecast) {
+      // Find the index of the first daily forecast whose startTime is tomorrow
+      var tomorrow = moment().add(1, "day").startOf("day");
+      var firstTomorrowIndex = -1;
+      if (this.weatherData && Array.isArray(this.weatherData.daily)) {
+        for (var t = 0; t < this.weatherData.daily.length; t++) {
+          var dailyStart = moment.parseZone(
+            this.weatherData.daily[t].startTime
+          );
+          if (dailyStart.isSame(tomorrow, "day")) {
+            firstTomorrowIndex = t;
+            break;
+          }
+        }
+      }
+
+      var i = this.config.includeTodayInDailyForecast ? 0 : firstTomorrowIndex;
+
+      var previousEntryDate = undefined;
+
+      var dailiesShows = 0;
+      for (i; i < this.weatherData.daily.length; i++) {
+        if (!this.weatherData.daily[i]) {
+          break;
+        }
+
+        if (dailiesShows >= this.config.maxDailiesToShow) {
+          break;
+        }
+
+        var entryDate = moment.parseZone(this.weatherData.daily[i].startTime);
+
+        if (previousEntryDate && previousEntryDate.isSame(entryDate, "day")) {
+          continue;
+        }
+
+        previousEntryDate = entryDate;
+
+        dailies.push(
+          this.forecastDailyFactory(this.weatherData.daily[i], "daily")
+        );
+
+        dailiesShows++;
+      }
+    }
+
+    var precipitationChange = this.analyzePrecipitationChange();
+
+    // Calculate Sunrise & Sunset
+    // Location of the weather data, as reported by MMM-Weatherdotcom
+    var location = this.location || {};
+    var sunTimes = this.calculateSunTimes(location.lat, location.lon);
+    var sunriseFormatted =
+      sunTimes && sunTimes.sunrise
+        ? moment(sunTimes.sunrise).format(
+            this.config.label_sunTimeFormat || "h:mm a"
+          )
+        : null;
+    var sunsetFormatted =
+      sunTimes && sunTimes.sunset
+        ? moment(sunTimes.sunset).format(
+            this.config.label_sunTimeFormat || "h:mm a"
+          )
+        : null;
+
+    // Humidity
+    var humidityVal = null;
+    if (
+      this.weatherData.hourly &&
+      this.weatherData.hourly[0] &&
+      this.weatherData.hourly[0].relativeHumidity &&
+      this.weatherData.hourly[0].relativeHumidity.value !== null &&
+      typeof this.weatherData.hourly[0].relativeHumidity.value !== "undefined"
+    ) {
+      humidityVal = Math.round(
+        this.weatherData.hourly[0].relativeHumidity.value
+      );
+    } else if (this.weatherData.hourly && this.weatherData.hourly[0]) {
+      var gridHum = this.getGridValueWithinDuration(
+        this.weatherData.hourly[0].startTime,
+        "relativeHumidity"
+      );
+      if (gridHum !== undefined && gridHum !== null && !isNaN(gridHum)) {
+        humidityVal = Math.round(parseFloat(gridHum));
+      }
+    }
+    var humidityFormatted = humidityVal !== null ? `${humidityVal}%` : null;
+
+    // Dew Point
+    var dewPointVal = null;
+    if (
+      this.weatherData.hourly &&
+      this.weatherData.hourly[0] &&
+      this.weatherData.hourly[0].dewpoint &&
+      this.weatherData.hourly[0].dewpoint.value !== null &&
+      typeof this.weatherData.hourly[0].dewpoint.value !== "undefined"
+    ) {
+      var rawDp = this.weatherData.hourly[0].dewpoint.value;
+      // NOAA hourly dewpoint is Celsius
+      var convertedDp =
+        this.config.units === "metric" ? rawDp : (rawDp * 9) / 5 + 32;
+      dewPointVal = Math.round(convertedDp);
+    } else if (this.weatherData.hourly && this.weatherData.hourly[0]) {
+      var gridDp = this.getGridValueWithinDuration(
+        this.weatherData.hourly[0].startTime,
+        "dewpoint"
+      );
+      if (gridDp !== undefined && gridDp !== null && !isNaN(gridDp)) {
+        dewPointVal = Math.round(parseFloat(gridDp));
+      }
+    }
+    var dewPointFormatted = dewPointVal !== null ? `${dewPointVal}°` : null;
+
+    // Barometric Pressure
+    var pressureFormatted = null;
+    if (this.weatherData.hourly && this.weatherData.hourly[0]) {
+      var gridPressure =
+        this.getGridValueWithinDuration(
+          this.weatherData.hourly[0].startTime,
+          "seaLevelPressure"
+        ) ||
+        this.getGridValueWithinDuration(
+          this.weatherData.hourly[0].startTime,
+          "pressure"
+        );
+      if (
+        gridPressure !== undefined &&
+        gridPressure !== null &&
+        !isNaN(gridPressure)
+      ) {
+        var pNum = parseFloat(gridPressure);
+        if (this.config.units === "imperial") {
+          // If Pa, convert to inHg
+          var inHg = pNum > 2000 ? pNum / 3386.389 : pNum * 0.02953;
+          pressureFormatted = `${inHg.toFixed(2)} inHg`;
+        } else {
+          // If Pa, convert to hPa
+          var hPa = pNum > 2000 ? Math.round(pNum / 100) : Math.round(pNum);
+          pressureFormatted = `${hPa} hPa`;
+        }
+      }
+    }
+
+    // UV Index
+    var uvFormatted = null;
+    if (this.weatherData.hourly && this.weatherData.hourly[0]) {
+      var uvVal = this.getGridValueWithinDuration(
+        this.weatherData.hourly[0].startTime,
+        "uvIndex"
+      );
+      if (uvVal !== undefined && uvVal !== null && !isNaN(uvVal)) {
+        uvFormatted = `${Math.round(parseFloat(uvVal))}`;
+      }
+    }
+
+    // Visibility
+    var visFormatted = null;
+    if (this.weatherData.hourly && this.weatherData.hourly[0]) {
+      var gridVis = this.getGridValueWithinDuration(
+        this.weatherData.hourly[0].startTime,
+        "visibility"
+      );
+      if (gridVis !== undefined && gridVis !== null && !isNaN(gridVis)) {
+        var vMeters = parseFloat(gridVis);
+        if (this.config.units === "imperial") {
+          var miles = Math.round((vMeters / 1609.344) * 10) / 10;
+          visFormatted = `${miles} mi`;
+        } else {
+          var km = Math.round((vMeters / 1000) * 10) / 10;
+          visFormatted = `${km} km`;
+        }
+      }
+    }
+
+    // Current Conditions Last Update Time (from station observation or hourly generation)
+    var currentConditionsUpdateFormatted = null;
+    var rawObsTimestamp =
+      (this.weatherData && this.weatherData.observationTime) ||
+      (this.weatherData && this.weatherData.generatedAt);
+    if (rawObsTimestamp) {
+      var obsMoment = moment(rawObsTimestamp);
+      if (obsMoment.isValid()) {
+        currentConditionsUpdateFormatted = obsMoment.format(
+          this.config.label_lastUpdateTimeFormat || "h:mm a"
+        );
+      }
+    }
+
+    // Forecast Last Update Time (from NWS forecast office package publication)
+    var forecastUpdateFormatted = null;
+    var rawForecastTimestamp =
+      (this.weatherData && this.weatherData.updateTime) ||
+      (this.weatherData && this.weatherData.generatedAt);
+    if (rawForecastTimestamp) {
+      var forecastMoment = moment(rawForecastTimestamp);
+      if (forecastMoment.isValid()) {
+        forecastUpdateFormatted = forecastMoment.format(
+          this.config.label_lastUpdateTimeFormat || "h:mm a"
+        );
+      }
+    }
+
+    // Weather Alerts
+    var alerts = [];
+    if (
+      this.config.showAlerts &&
+      this.weatherData &&
+      Array.isArray(this.weatherData.alerts)
+    ) {
+      var seenAlerts = new Set();
+      for (var a = 0; a < this.weatherData.alerts.length; a++) {
+        var alertItem = this.weatherData.alerts[a];
+        if (!alertItem) {
+          continue;
+        }
+        var p = alertItem.properties || alertItem;
+        var eventName = p.event || "Weather Alert";
+        var desc = (p.description || p.headline || "").trim();
+        var senderName = p.senderName || p.sender_name || p.sender || "NWS";
+        var alertKey = (
+          alertItem.id ||
+          p.id ||
+          eventName + "_" + desc
+        ).toString();
+
+        if (seenAlerts.has(alertKey)) {
+          continue;
+        }
+        seenAlerts.add(alertKey);
+
+        alerts.push({
+          event: eventName,
+          description: desc,
+          sender_name: senderName,
+          senderName: senderName,
+          headline: (p.headline || "").trim(),
+          severity: p.severity || null,
+          urgency: p.urgency || null,
+          certainty: p.certainty || null,
+          instruction: (p.instruction || "").trim(),
+          onset: p.onset || null,
+          expires: p.expires || null,
+          ends: p.ends || null
+        });
+
+        if (
+          this.config.maxAlertsToShow > 0 &&
+          alerts.length >= this.config.maxAlertsToShow
+        ) {
+          break;
+        }
+      }
+    }
+
+    return {
+      currently: {
+        temperature: `${Math.round(this.weatherData.hourly[0].temperature)}°`,
+        feelslike: `${Math.round(this.weatherData.hourly[0].feelsLike)}°`,
+        animatedIconId: this.config.useAnimatedIcons
+          ? this.getAnimatedIconId()
+          : null,
+        animatedIconName: this.convertNOAAtoIcon(
+          this.weatherData.hourly[0].icon
+        ),
+        iconPath: this.generateIconSrc(
+          this.convertNOAAtoIcon(this.weatherData.hourly[0].icon),
+          true
+        ),
+        tempRange: this.formatHiLowTemperature(
+          this.weatherData.daily[0].maxTemperature,
+          this.weatherData.daily[0].minTemperature
+        ),
+        precipitation: this.formatPrecipitation(
+          null,
+          this.weatherData.hourly[0].rainAccumulation,
+          this.weatherData.hourly[0].snowAccumulation
+        ),
+        wind: this.formatWind(
+          this.weatherData.hourly[0].windSpeed,
+          this.weatherData.hourly[0].windDirection,
+          this.weatherData.hourly[0].windGust
+        ),
+        humidity: humidityFormatted,
+        dewPoint: dewPointFormatted,
+        sunrise: sunriseFormatted,
+        sunset: sunsetFormatted,
+        barometricPressure: pressureFormatted,
+        uvIndex: uvFormatted,
+        visibility: visFormatted
+      },
+      summary: summary,
+      precipitationChange: precipitationChange,
+      hourly: hourlies,
+      daily: dailies,
+      alerts: alerts,
+      currentConditionsLastUpdate: currentConditionsUpdateFormatted,
+      forecastLastUpdate: forecastUpdateFormatted,
+      lastUpdate: forecastUpdateFormatted,
+      // NOAA publishes no expiration time
+      expires: null
+    };
+  },
+
+  /*
+    Weather.com values arrive in the units MMM-Weatherdotcom requested them
+    in: "e" (English: °F, mph, inches, miles, inHg) or "m" (metric: °C, km/h,
+    mm of rain and cm of snow, km, hPa). These convert them to config.units.
+    Values that are already in the right units are passed through untouched.
+  */
+  weatherComConverters: function (apiUnits) {
+    var english = apiUnits === "e";
+    var imperial = this.config.units === "imperial";
+    var toNumber = function (v) {
+      return v === null || v === undefined || isNaN(v) ? null : Number(v);
+    };
+    var round = function (v, places) {
+      var f = Math.pow(10, places);
+      return Math.round(v * f) / f;
+    };
+    return {
+      temperature: function (v) {
+        v = toNumber(v);
+        if (v === null || english === imperial) return v;
+        return english ? ((v - 32) * 5) / 9 : (v * 9) / 5 + 32;
+      },
+      // mph or km/h
+      speed: function (v) {
+        v = toNumber(v);
+        if (v === null || english === imperial) return v;
+        return english ? v * 1.609344 : v / 1.609344;
+      },
+      // inches or mm, as a display string; null when there is none
+      precipitation: function (v, isSnow) {
+        v = toNumber(v);
+        if (v === null) return null;
+        var mm = english ? v * 25.4 : isSnow ? v * 10 : v;
+        if (imperial) {
+          return String(english ? round(v, 2) : round(mm / 25.4, 2));
+        }
+        return String(round(mm, 1));
+      },
+      // miles or km
+      distance: function (v) {
+        v = toNumber(v);
+        if (v === null || english === imperial) return v;
+        return english ? v * 1.609344 : v / 1.609344;
+      },
+      // inHg or hPa
+      pressure: function (v) {
+        v = toNumber(v);
+        if (v === null || english === imperial) return v;
+        return english ? v * 33.8639 : v / 33.8639;
+      }
+    };
+  },
+
+  /*
+    Builds the same data object as processWeatherData() from the Weather.com
+    data shared by MMM-Weatherdotcom: current observation, 15-day daily and
+    hourly forecasts (parallel arrays with one entry per day / hour) and
+    alerts.
+  */
+  processWeatherComData: function (wc, payload) {
+    var self = this;
+    var convert = this.weatherComConverters(wc.units);
+    var current = wc.current;
+    var daily = wc.daily;
+    var hourly = wc.hourly;
+    var daypart = (daily.daypart && daily.daypart[0]) || {};
+    var speedUnit = this.config.units === "imperial" ? "mph" : "km/h";
+    var updateFormat = this.config.label_lastUpdateTimeFormat || "h:mm a";
+    var sunFormat = this.config.label_sunTimeFormat || "h:mm a";
+
+    var iconOr = function (name) {
+      return name || "cloudy";
+    };
+    var roundTemp = function (v) {
+      v = convert.temperature(v);
+      return v === null ? null : Math.round(v);
+    };
+    var formatSpeed = function (v) {
+      v = convert.speed(v);
+      return v === null ? null : Math.round(v);
+    };
+    var dateKey = function (validTimeUtc) {
+      return moment.unix(validTimeUtc).format("YYYY-MM-DD");
+    };
+    var todayKey = moment().format("YYYY-MM-DD");
+    var tomorrowKey = moment().add(1, "day").format("YYYY-MM-DD");
+
+    // Day and night halves of each day: the day half is null once the
+    // daytime has passed, so the night half is used then
+    var dayPart = function (i) {
+      return daypart.iconCode && daypart.iconCode[2 * i] !== null
+        ? 2 * i
+        : 2 * i + 1;
+    };
+    var partValue = function (key, part) {
+      return daypart[key] ? daypart[key][part] : null;
+    };
+
+    // --------- Summary ---------
+    // The first daypart with a forecast ("Today", or "Tonight" later on)
+    var firstPart = (daypart.wxPhraseLong || []).findIndex(function (v) {
+      return v !== null;
+    });
+    var summary = null;
+    if (firstPart !== -1) {
+      summary = this.config.concise
+        ? daypart.wxPhraseLong[firstPart]
+        : daypart.narrative[firstPart];
+    }
+
+    // --------- Hourly ---------
+    // The hourly forecast starts at the next hour. Entries are picked every
+    // hourlyForecastInterval hours from the current hour, as for NOAA.
+    var hourIndexByTime = {};
+    hourly.validTimeUtc.forEach(function (t, i) {
+      hourIndexByTime[t * 1000] = i;
+    });
+    var currentHourStart = moment().startOf("hour").valueOf();
+    var hourlies = [];
+    if (this.config.showHourlyForecast) {
+      for (var k = 1; hourlies.length < this.config.maxHourliesToShow; k++) {
+        var idx =
+          hourIndexByTime[
+            currentHourStart + k * this.config.hourlyForecastInterval * 3600000
+          ];
+        if (idx === undefined) break;
+        var hItem = {
+          isFirst: hourlies.length === 0,
+          time: moment
+            .parseZone(hourly.validTimeLocal[idx])
+            .format(this.config.label_timeFormat),
+          iconPath: this.generateIconSrc(iconOr(hourly.iconName[idx])),
+          temperature: `${roundTemp(hourly.temperature[idx])}°`,
+          precipitation: this.formatPrecipitation(
+            hourly.precipChance[idx],
+            convert.precipitation(hourly.qpf[idx], false),
+            convert.precipitation(hourly.qpfSnow[idx], true)
+          ),
+          wind: this.formatWind(
+            `${formatSpeed(hourly.windSpeed[idx])} ${speedUnit}`,
+            hourly.windDirectionCardinal[idx],
+            formatSpeed(hourly.windGust[idx]),
+            this.config.compactForecastWind
+          )
+        };
+        if (this.config.useAnimatedIcons && !this.config.animateMainIconOnly) {
+          hItem.animatedIconId = this.getAnimatedIconId();
+          hItem.animatedIconName = iconOr(hourly.iconName[idx]);
+        }
+        hourlies.push(hItem);
+      }
+    }
+
+    // --------- Daily ---------
+    // Until 7am Weather.com still lists yesterday as the first day
+    var todayIndex = daily.validTimeUtc.findIndex(function (t) {
+      return dateKey(t) === todayKey;
+    });
+    if (todayIndex === -1) todayIndex = 0;
+    var firstDayKey = this.config.includeTodayInDailyForecast
+      ? todayKey
+      : tomorrowKey;
+    var dailies = [];
+    if (this.config.showDailyForecast) {
+      for (var i = 0; i < daily.validTimeUtc.length; i++) {
+        if (dailies.length >= this.config.maxDailiesToShow) break;
+        var key = dateKey(daily.validTimeUtc[i]);
+        if (key < firstDayKey) continue;
+        var part = dayPart(i);
+        // The day's high is null once the daytime has passed
+        var max =
+          daily.temperatureMax[i] !== null
+            ? daily.temperatureMax[i]
+            : daily.calendarDayTemperatureMax[i];
+        var min =
+          daily.temperatureMin[i] !== null
+            ? daily.temperatureMin[i]
+            : daily.calendarDayTemperatureMin[i];
+        var dItem = {
+          day: this.config.label_days[moment.unix(daily.validTimeUtc[i]).format("d")],
+          isToday: key === todayKey,
+          iconPath: this.generateIconSrc(iconOr(partValue("iconName", part))),
+          tempRange: this.formatHiLowTemperature(
+            convert.temperature(max),
+            convert.temperature(min)
+          ),
+          precipitation: this.formatPrecipitation(
+            partValue("precipChance", part),
+            convert.precipitation(daily.qpf[i], false),
+            convert.precipitation(daily.qpfSnow[i], true)
+          ),
+          wind: this.formatWind(
+            `${formatSpeed(partValue("windSpeed", part))} ${speedUnit}`,
+            partValue("windDirectionCardinal", part),
+            null,
+            this.config.compactForecastWind
+          )
+        };
+        if (this.config.useAnimatedIcons && !this.config.animateMainIconOnly) {
+          dItem.animatedIconId = this.getAnimatedIconId();
+          dItem.animatedIconName = iconOr(partValue("iconName", part));
+        }
+        dailies.push(dItem);
+      }
+    }
+
+    // --------- Precipitation start / stop ---------
+    // The current observation stands in for the current hour
+    var hours = [
+      {
+        iconName: current.iconName,
+        startTime: moment
+          .unix(current.validTimeUtc)
+          .startOf("hour")
+          .format()
+      }
+    ];
+    hourly.validTimeLocal.forEach(function (t, i) {
+      hours.push({ iconName: hourly.iconName[i], startTime: t });
+    });
+    var precipitationChange = this.analyzePrecipitationChange(hours);
+
+    // --------- Extra current conditions ---------
+    var dewPoint = roundTemp(current.temperatureDewPoint);
+    var pressure = convert.pressure(current.pressureAltimeter);
+    var pressureFormatted = null;
+    if (pressure !== null) {
+      pressureFormatted =
+        this.config.units === "imperial"
+          ? `${pressure.toFixed(2)} inHg`
+          : `${Math.round(pressure)} hPa`;
+    }
+    var visibility = convert.distance(current.visibility);
+    var visibilityFormatted = null;
+    if (visibility !== null) {
+      visibilityFormatted = `${Math.round(visibility * 10) / 10} ${
+        this.config.units === "imperial" ? "mi" : "km"
+      }`;
+    }
+    var formatTime = function (epochSeconds, format) {
+      return epochSeconds ? moment.unix(epochSeconds).format(format) : null;
+    };
+
+    // --------- Alerts ---------
+    var alerts = [];
+    if (this.config.showAlerts && Array.isArray(wc.alerts)) {
+      var seenAlerts = new Set();
+      for (var a = 0; a < wc.alerts.length; a++) {
+        var al = wc.alerts[a];
+        if (!al) continue;
+        var alertKey = al.detailKey || al.identifier || al.headlineText;
+        if (seenAlerts.has(alertKey)) continue;
+        seenAlerts.add(alertKey);
+        var text = al.texts && al.texts[0] ? al.texts[0] : {};
+        var senderName = al.officeName ? `NWS ${al.officeName}` : al.source || "";
+        alerts.push({
+          event: al.eventDescription || "Weather Alert",
+          description: (
+            text.description ||
+            al.summaryHeadline ||
+            al.headlineText ||
+            ""
+          ).trim(),
+          sender_name: senderName,
+          senderName: senderName,
+          headline: (al.headlineText || "").trim(),
+          severity: al.severity || null,
+          urgency: al.urgency || null,
+          certainty: al.certainty || null,
+          instruction: (text.instruction || "").trim(),
+          onset: al.onsetTimeLocal || null,
+          expires: al.expireTimeLocal || null,
+          ends: al.endTimeLocal || null
+        });
+        if (
+          this.config.maxAlertsToShow > 0 &&
+          alerts.length >= this.config.maxAlertsToShow
+        ) {
+          break;
+        }
+      }
+    }
+
+    // --------- Update times ---------
+    // Published by Weather.com, not the time the data was fetched.
+    // Weather.com has no issue time for its forecasts.
+    var formatUpdate = function (ms) {
+      return ms ? moment(ms).format(updateFormat) : null;
+    };
+    var currentUpdate = formatUpdate(
+      payload.currentUpdatedAt || current.validTimeUtc * 1000
+    );
+    var forecastUpdate = formatUpdate(payload.forecastUpdatedAt);
+    // When Weather.com says the data is due to be refreshed
+    var expires = formatUpdate(payload.expiresAt);
+
+    return {
+      currently: {
+        temperature: `${roundTemp(current.temperature)}°`,
+        feelslike: `${roundTemp(current.temperatureFeelsLike)}°`,
+        animatedIconId: this.config.useAnimatedIcons
+          ? this.getAnimatedIconId()
+          : null,
+        animatedIconName: iconOr(current.iconName),
+        iconPath: this.generateIconSrc(iconOr(current.iconName), true),
+        tempRange: this.formatHiLowTemperature(
+          convert.temperature(daily.calendarDayTemperatureMax[todayIndex]),
+          convert.temperature(daily.calendarDayTemperatureMin[todayIndex])
+        ),
+        // Observed in the last hour
+        precipitation: this.formatPrecipitation(
+          null,
+          convert.precipitation(current.precip1Hour, false),
+          convert.precipitation(current.snow1Hour, true)
+        ),
+        wind: this.formatWind(
+          `${formatSpeed(current.windSpeed)} ${speedUnit}`,
+          current.windDirectionCardinal,
+          formatSpeed(current.windGust)
+        ),
+        humidity:
+          current.relativeHumidity !== null &&
+          current.relativeHumidity !== undefined
+            ? `${Math.round(current.relativeHumidity)}%`
+            : null,
+        dewPoint: dewPoint !== null ? `${dewPoint}°` : null,
+        sunrise: formatTime(current.sunriseTimeUtc, sunFormat),
+        sunset: formatTime(current.sunsetTimeUtc, sunFormat),
+        barometricPressure: pressureFormatted,
+        uvIndex:
+          current.uvIndex !== null && current.uvIndex !== undefined
+            ? `${current.uvIndex}`
+            : null,
+        visibility: visibilityFormatted
+      },
+      summary: summary,
+      precipitationChange: precipitationChange,
+      hourly: hourlies,
+      daily: dailies,
+      alerts: alerts,
+      currentConditionsLastUpdate: currentUpdate,
+      forecastLastUpdate: forecastUpdate,
+      lastUpdate: forecastUpdate || currentUpdate,
+      expires: expires
+    };
+  },
+
+  forecastHourlyFactory: function (fData, type, isFirst) {
+    var fItem = new Object();
+    fItem.isFirst = !!isFirst;
+
+    // --------- Date / Time Display ---------
+    //time (e.g.: "5 PM")
+    fItem.time = moment
+      .parseZone(fData.startTime)
+      .format(this.config.label_timeFormat);
+
+    // --------- Icon ---------
+    if (this.config.useAnimatedIcons && !this.config.animateMainIconOnly) {
+      fItem.animatedIconId = this.getAnimatedIconId();
+      fItem.animatedIconName = this.convertNOAAtoIcon(fData.icon);
+    }
+    fItem.iconPath = this.generateIconSrc(this.convertNOAAtoIcon(fData.icon));
+
+    // --------- Temperature ---------
+    //just display projected temperature for that hour
+    fItem.temperature = `${Math.round(fData.temperature)}°`;
+
+    // --------- Precipitation ---------
+    fItem.precipitation = this.formatPrecipitation(
+      fData.probabilityOfPrecipitation.value,
+      fData.rainAccumulation,
+      fData.snowAccumulation
+    );
+
+    // --------- Wind ---------
+    fItem.wind = this.formatWind(
+      fData.windSpeed,
+      fData.windDirection,
+      fData.windGust,
+      this.config.compactForecastWind
+    );
+
+    return fItem;
+  },
+
+  forecastDailyFactory: function (fData, type) {
+    var fItem = new Object();
+
+    // --------- Date / Time Display ---------
+    //day name (e.g.: "MON")
+    var entryStart = moment.parseZone(fData.startTime);
+    fItem.day = this.config.label_days[entryStart.format("d")];
+    fItem.isToday = entryStart.isSame(moment(), "day");
+
+    // --------- Icon ---------
+    if (this.config.useAnimatedIcons && !this.config.animateMainIconOnly) {
+      fItem.animatedIconId = this.getAnimatedIconId();
+      fItem.animatedIconName = this.convertNOAAtoIcon(fData.icon);
+    }
+    fItem.iconPath = this.generateIconSrc(this.convertNOAAtoIcon(fData.icon));
+
+    // --------- Temperature ---------
+    //display High / Low temperatures
+    fItem.tempRange = this.formatHiLowTemperature(
+      fData.maxTemperature,
+      fData.minTemperature
+    );
+
+    // --------- Precipitation ---------
+    fItem.precipitation = this.formatPrecipitation(
+      fData.probabilityOfPrecipitation.value,
+      fData.rainAccumulation,
+      fData.snowAccumulation
+    );
+
+    // --------- Wind ---------
+    fItem.wind = this.formatWind(
+      fData.windSpeed,
+      fData.windDirection,
+      fData.windGust,
+      this.config.compactForecastWind
+    );
+
+    return fItem;
+  },
+
+  /*
+      Returns a formatted data object for High / Low temperature range
+     */
+  formatHiLowTemperature: function (h, l) {
+    // Defensive guard: prevent NaN from appearing if values are undefined/null
+    var highValue =
+      h !== null && h !== undefined && !isNaN(h) ? Math.round(h) : "--";
+    var lowValue =
+      l !== null && l !== undefined && !isNaN(l) ? Math.round(l) : "--";
+
+    return {
+      high: `${
+        (!this.config.concise ? `${this.config.label_high} ` : "") + highValue
+      }°`,
+      low: `${
+        (!this.config.concise ? `${this.config.label_low} ` : "") + lowValue
+      }°`
+    };
+  },
+
+  /*
+      Returns a formatted data object for precipitation
+     */
+  formatPrecipitation: function (
+    percentChance,
+    rainAccumulation,
+    snowAccumulation
+  ) {
+    var accumulation = null;
+    var accumulationType = null;
+    var pop = `${percentChance}%`;
+
+    var unit = this.config.units === "imperial" ? "in" : "mm";
+
+    if (snowAccumulation && parseFloat(snowAccumulation) > 0) {
+      accumulationType = "snow";
+      accumulation = `${snowAccumulation} ${unit}`;
+    } else if (rainAccumulation && parseFloat(rainAccumulation) > 0) {
+      accumulationType = "rain";
+      accumulation = `${rainAccumulation} ${unit}`;
+    }
+
+    return {
+      pop: pop,
+      accumulation: accumulation,
+      accumulationType: accumulationType
+    };
+  },
+
+  compactWindSpeed: function (speed) {
+    return String(speed)
+      .replace(/\s+to\s+/i, "-")
+      .replace(/\s*(?:mph|km\/h|m\/s)\b/i, "")
+      .trim();
+  },
+
+  /*
+      Returns a formatted data object for wind conditions
+     */
+  formatWind: function (speed, bearing, gust, compact) {
+    if (compact) {
+      return {
+        windSpeed: `${this.compactWindSpeed(speed)}${bearing || ""}`,
+        windGust: gust ? `G${this.compactWindSpeed(gust)}` : null
+      };
+    }
+
+    //wind gust
+    var windGust = null;
+
+    var gustLabel = this.config.units === "imperial" ? "mph" : "km/h";
+
+    if (!this.config.concise && gust) {
+      windGust = ` (${this.config.label_gust} ${gust} ${gustLabel})`;
+    }
+
+    return {
+      windSpeed: `${speed} ${!this.config.concise ? `${bearing}` : ""}`,
+      windGust: windGust
+    };
+  },
+
+  /*
+      Some display items need the unit beside them.  This returns the correct
+      unit for the given metric based on the unit set in use.
+     */
+  units: {
+    accumulationRain: {
+      imperial: "in",
+      metric: "mm",
+      "": "mm"
+    },
+    accumulationSnow: {
+      imperial: "in",
+      metric: "mm",
+      "": "mm"
+    },
+    windSpeed: {
+      imperial: "mph",
+      metric: "m/s",
+      "": "m/s"
+    }
+  },
+
+  /*
+      Icon sets can be added here.  The path is relative to
+      MagicMirror/modules/MMM-Weatherdotcom/icons, and the format
+      is specified here so that you can use icons in any format
+      that works for you.
+
+      OpenWeatherMap currently specifies one of ten icons for weather
+      conditions (from which this module was originally based):
+
+        clear-day
+        clear-night
+        cloudy
+        fog
+        partly-cloudy-day
+        partly-cloudy-night
+        rain
+        sleet
+        snow
+        wind
+
+      All of the icon sets below support these ten plus an
+      additional three in anticipation of OpenWeatherMap enabling
+      a few more:
+
+        hail,
+        thunderstorm,
+        tornado
+
+      Lastly, the icons also contain three icons for use as inline
+      indicators beside precipitation and wind conditions. These
+      ones look best if designed to a 24px X 24px artboard.
+
+        i-rain
+        i-snow
+        i-wind
+
+     */
+  iconsets: {
+    "1m": { path: "1m", format: "svg" },
+    "1c": { path: "1c", format: "svg" },
+    "2m": { path: "2m", format: "svg" },
+    "2c": { path: "2c", format: "svg" },
+    "3m": { path: "3m", format: "svg" },
+    "3c": { path: "3c", format: "svg" },
+    "4m": { path: "4m", format: "svg" },
+    "4c": { path: "4c", format: "svg" },
+    "5m": { path: "5m", format: "svg" },
+    "5c": { path: "5c", format: "svg" },
+    "6fa": { path: "6fa", format: "svg" },
+    "6oa": { path: "6oa", format: "svg" }
+  },
+
+  /*
+      This converts NOAA icons to icon names
+
+      Reference: https://github.com/weather-gov/weather.gov/blob/main/docs/icons.md and https://api.weather.gov/icons.
+    */
+  convertNOAAtoIcon: function (icon) {
+    // If the icon string contains any of these NOAA short-codes, return the human-readable description.
+    var noaaDescriptions = {
+      wind_skc: "clear",
+      wind_few: "partly-cloudy",
+      wind_sct: "partly-cloudy",
+      wind_bkn: "cloudy",
+      wind_ovc: "cloudy",
+      snow: "snow",
+      rain_snow: "snow",
+      rain_sleet: "sleet",
+      snow_sleet: "snow",
+      // Freezing rain: use the existing sleet icon (iconsets do not include a "Freezing rain" filename)
+      fzra: "sleet",
+      rain_fzra: "rain",
+      snow_fzra: "snow",
+      sleet: "sleet",
+      rain: "rain",
+      rain_showers: "rain",
+      rain_showers_hi: "rain",
+      tsra: "thunderstorm",
+      tsra_sct: "thunderstorm",
+      tsra_hi: "thunderstorm",
+      tornado: "tornado",
+      hurricane: "tornado",
+      // No dedicated hurricane/tropical-storm icon in bundled sets; use thunderstorm as a reasonable fallback.
+      tropical_storm: "thunderstorm",
+      dust: "fog",
+      smoke: "fog",
+      haze: "fog",
+      hot: "clear",
+      cold: "clear",
+      blizzard: "snow",
+      fog: "fog",
+      skc: "clear",
+      few: "partly-cloudy",
+      sct: "partly-cloudy",
+      bkn: "cloudy",
+      ovc: "cloudy"
+    };
+
+    if (typeof icon === "string") {
+      for (var key in noaaDescriptions) {
+        if (Object.prototype.hasOwnProperty.call(noaaDescriptions, key)) {
+          if (icon.indexOf(key) !== -1) {
+            if (noaaDescriptions[key] === "clear") {
+              if (icon.indexOf("night") !== -1) {
+                return "clear-night";
+              } else {
+                return "clear-day";
+              }
+            } else if (noaaDescriptions[key] === "partly-cloudy") {
+              if (icon.indexOf("night") !== -1) {
+                return "partly-cloudy-night";
+              } else {
+                return "partly-cloudy-day";
+              }
+            } else {
+              return noaaDescriptions[key];
+            }
+          }
+        }
+      }
+    }
+  },
+
+  /*
+      This generates a URL to the icon file. The icon sets are bundled
+      with MMM-Weatherdotcom.
+     */
+  generateIconSrc: function (icon, mainIcon) {
+    var iconset = this.iconsets[
+      mainIcon ? this.config.mainIconset : this.config.iconset
+    ];
+    var iconPath = this.iconPath || this.defaultIconPath;
+    return `${iconPath}/${iconset.path}/${icon}.${iconset.format}`;
+  },
+
+  /*
+      When the Skycons animated set is in use, the icons need
+      to be rebuilt with each data refresh.  This traverses the
+      DOM to find all of the current animated icon canvas elements
+      and removes them by id from the skycons object.
+     */
+  clearIcons: function () {
+    this.skycons.pause();
+    var self = this;
+    var animatedIconCanvases = document.querySelectorAll(
+      `.skycon-${this.identifier}`
+    );
+    animatedIconCanvases.forEach(function (icon) {
+      self.skycons.remove(icon.id);
+    });
+    this.iconIdCounter = 0;
+  },
+
+  /*
+      When the Skycons animated set is in use, the icons need
+      to be rebuilt with each data refresh.  This returns a
+      unique id that will be assigned the icon's canvas element.
+     */
+  getAnimatedIconId: function () {
+    //id to use for the canvas element
+    var iconId = `skycon_${this.identifier}_${this.iconIdCounter}`;
+    this.iconIdCounter++;
+    return iconId;
+  },
+
+  /*
+      For use with the Skycons animated icon set. Once the
+      DOM is updated, the icons are built and set to animate.
+      Name is a bit misleading. We needed to wait until
+      the canvas elements got added to the DOM, which doesn't
+      happen until after updateDom() finishes executing
+      before actually drawing the icons.
+
+      This routine traverses the DOM for all canavas elements
+      prepared for an animated icon, and adds the icon to the
+      skycons object.  Then the icons are played.
+    */
+  playIcons: function (inst) {
+    var animatedIconCanvases = document.querySelectorAll(
+      `.skycon-${inst.identifier}`
+    );
+    animatedIconCanvases.forEach(function (icon) {
+      inst.skycons.add(icon.id, icon.getAttribute("data-animated-icon-name"));
+    });
+    inst.skycons.play();
+  },
+
+  /*
+      For any config parameters that are expected as integers, this
+      routine ensures they are numbers, and if they cannot be
+      converted to integers, then the module defaults are used.
+     */
+  sanitizeNumbers: function (keys) {
+    var self = this;
+    keys.forEach(function (key) {
+      if (isNaN(parseInt(self.config[key]))) {
+        self.config[key] = self.defaults[key];
+      } else {
+        self.config[key] = parseInt(self.config[key]);
+      }
+    });
+  }
+});

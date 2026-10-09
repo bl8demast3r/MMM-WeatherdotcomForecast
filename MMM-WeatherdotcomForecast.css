@@ -1,0 +1,596 @@
+/* stylelint-disable selector-class-pattern -- MagicMirror requires module class to match the module name (PascalCase). */
+/* stylelint-disable no-descending-specificity -- layout sections are grouped by feature for readability rather than by rising specificity. */
+
+.MMM-WeatherdotcomForecast * {
+  box-sizing: border-box;
+}
+
+/* Width is driven by config.frameWidth on the .wrapper element (template inline style). */
+
+.MMM-WeatherdotcomForecast .wrapper {
+  /* Let inline width drive the column; child .module-content adapts to fit. */
+  display: block;
+}
+
+.MMM-WeatherdotcomForecast .forecast-container .forecast-item .temperature,
+.MMM-WeatherdotcomForecast .forecast-container .forecast-item .temperature-container {
+  color: #fff;
+}
+
+.MMM-WeatherdotcomForecast .temperature .low-temperature,
+.MMM-WeatherdotcomForecast .temperature-container .low-temperature {
+  color: #aaa;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.colored .temperature .high-temperature,
+.MMM-WeatherdotcomForecast .wrapper.colored .temperature-container .high-temperature {
+  color: #f8dd70;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.colored .temperature .low-temperature,
+.MMM-WeatherdotcomForecast .wrapper.colored .temperature-container .low-temperature {
+  color: #6fc4f5;
+}
+
+.MMM-WeatherdotcomForecast .accumulation::before {
+  content: " ";
+}
+
+.MMM-WeatherdotcomForecast .attribution {
+  font-size: 11px;
+  line-height: 16px;
+  color: #777;
+  text-align: right;
+  margin-top: 10px;
+}
+
+/* Source status when MMM-Weatherdotcom has fallen back to NOAA, or is
+   showing old data because every source failed */
+.MMM-WeatherdotcomForecast .attribution .source-fallback {
+  color: #f5b041;
+}
+
+/* Current Conditions */
+
+.MMM-WeatherdotcomForecast .current-conditions-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  min-height: 100px;
+  text-align: right;
+}
+
+.MMM-WeatherdotcomForecast .current-conditions-wrapper > .current-conditions-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.MMM-WeatherdotcomForecast .current-conditions-wrapper .current.temperature {
+  line-height: 1;
+}
+
+.MMM-WeatherdotcomForecast .current-conditions-wrapper .current.feelslike {
+  line-height: 1;
+  align-self: center;
+  font-size: 18px;
+}
+
+.MMM-WeatherdotcomForecast .current-conditions-wrapper .feelslike-label {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  margin-right: 2px;
+  opacity: 0.7;
+}
+
+.MMM-WeatherdotcomForecast .current-conditions-wrapper .icon {
+  width: 100px;
+  height: 100px;
+  display: inline-block;
+  position: relative;
+  margin: 0;
+}
+
+.MMM-WeatherdotcomForecast .extra-current-conditions-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  margin: 8px 0;
+  text-align: right;
+}
+
+.MMM-WeatherdotcomForecast .extra-current-conditions-wrapper .extra-conditions-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px 16px;
+  width: 100%;
+}
+
+/* Inline icons */
+
+.MMM-WeatherdotcomForecast .inline-icon,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .inline-icon {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  margin-right: 0;
+  vertical-align: middle;
+  position: relative;
+}
+
+/* Extra Current Conditions Containers */
+
+.MMM-WeatherdotcomForecast .extra-current-conditions-wrapper span[class$="-container"] {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  gap: 4px;
+}
+
+.MMM-WeatherdotcomForecast .extra-current-conditions-wrapper span[class$="-label"] {
+  margin-right: 2px;
+}
+
+/* Summary */
+
+.MMM-WeatherdotcomForecast .summary {
+  margin: 15px 0;
+}
+
+/* Weather Alerts */
+
+.MMM-WeatherdotcomForecast .weather-alert,
+.weather-alert {
+  margin-bottom: 16px;
+  display: block;
+  width: 100%;
+  border: solid 1px #222;
+  padding: 8px;
+  text-align: left;
+  background-image: url("../MMM-Weatherdotcom/icons/alert-icon.svg");
+  background-size: 30px 26px;
+  background-repeat: no-repeat;
+  background-position: 6px 10px;
+  box-sizing: border-box;
+}
+
+.MMM-WeatherdotcomForecast .weather-alert .weather-alert-title,
+.weather-alert .weather-alert-title {
+  font-size: 17px;
+  line-height: 1;
+  margin-bottom: 4px;
+  color: #dd1212;
+  display: block;
+  text-align: left;
+  padding-left: 36px;
+  font-weight: 700;
+}
+
+.MMM-WeatherdotcomForecast .weather-alert .weather-alert-description,
+.weather-alert .weather-alert-description {
+  font-size: 17px;
+  line-height: 1.2;
+  color: #fff;
+  text-align: left;
+  padding-left: 36px;
+
+  /* truncate to no more than three lines */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.MMM-WeatherdotcomForecast .weather-alert .weather-alert-source,
+.weather-alert .weather-alert-source {
+  display: block;
+  font-size: 11px;
+  line-height: 1;
+  text-transform: uppercase;
+  color: #999;
+  padding-left: 36px;
+  margin-top: 6px;
+}
+
+/* Forecast Header */
+
+.MMM-WeatherdotcomForecast .module-header.forecast-header {
+  margin-top: 20px;
+  margin-bottom: 0;
+}
+
+/* ------------ Forecast ------------ */
+
+/* Tiled Layout */
+
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 0 30px;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container .forecast-row {
+  display: flex;
+  flex-flow: row wrap;
+  justify-content: flex-start;
+  align-content: flex-start;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container .forecast-item {
+  flex: 0 0 33.3333%;
+  max-width: 33.3333%;
+  width: 33.3333%;
+  min-width: 0;
+  padding: 10px 4px;
+  box-sizing: border-box;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container * {
+  text-align: center;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container .forecast-item .time,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .forecast-icon-container,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .forecast-icon,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .temperature,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .temperature-container,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .precipitation-container,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .wind-container,
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container .forecast-item .day-name {
+  display: block;
+  margin: auto;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .forecast-icon {
+  width: 70px;
+  height: 70px;
+  margin: 4px auto;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container .forecast-item .time,
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container .forecast-item .day-name {
+  font-size: 17px;
+  text-transform: uppercase;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container .forecast-item .wind-speed,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .wind-gusts {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .wind-gusts {
+  display: block;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .temperature,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .temperature-container {
+  font-size: 22px;
+  padding: 4px 0;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .precipitation-container,
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item
+  .wind-container {
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+.MMM-WeatherdotcomForecast .forecast-container .forecast-item .precipitation-container {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-items: center;
+  column-gap: 3px;
+  row-gap: 2px;
+}
+
+.MMM-WeatherdotcomForecast
+  .forecast-container
+  .forecast-item
+  .precipitation-container
+  .inline-icon {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.MMM-WeatherdotcomForecast
+  .forecast-container
+  .forecast-item
+  .precipitation-container
+  .precipitation-pop {
+  grid-column: 2;
+  grid-row: 1;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.MMM-WeatherdotcomForecast
+  .forecast-container
+  .forecast-item
+  .precipitation-container
+  .precipitation-accumulation {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: block;
+  font-size: 0.78em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+/* ------------ Table Layout ------------ */
+
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container {
+  display: table;
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .forecast-row {
+  display: table-row-group;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .forecast-item,
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .header-row {
+  display: table-row;
+}
+
+/* Spacing instead of borders. */
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .forecast-item > span,
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .header-row > span {
+  display: table-cell;
+  font-size: 17px;
+  text-align: center;
+  vertical-align: middle;
+  height: 38px;
+  padding: 4px 2px;
+}
+
+/* Single divider between the last hourly and the first daily row. */
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item.daily:first-of-type
+  > span {
+  border-top: solid 1px #222;
+  padding-top: 8px;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item.hourly:last-of-type
+  > span {
+  padding-bottom: 8px;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .header-row > span {
+  height: 28px;
+  font-size: 14px;
+  text-transform: uppercase;
+  vertical-align: bottom;
+  padding: 0 2px 4px;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  > span:first-child {
+  text-align: left;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  > span:last-child {
+  text-align: right;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .forecast-item .temperature,
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .temperature-container {
+  text-align: right;
+}
+
+/* When column-header icons are present, drop the inline icons inside data rows
+   to avoid duplicating the same signal in every row. */
+.MMM-WeatherdotcomForecast
+  .wrapper.table.with-column-header-icons
+  .forecast-container
+  .forecast-item
+  .precipitation-container
+  .inline-icon,
+.MMM-WeatherdotcomForecast
+  .wrapper.table.with-column-header-icons
+  .forecast-container
+  .forecast-item
+  .wind-container
+  .inline-icon {
+  display: none;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .precipitation-container {
+  min-width: 4.75em;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.table.with-column-header-icons
+  .forecast-container
+  .forecast-item
+  .precipitation-container
+  .precipitation-pop,
+.MMM-WeatherdotcomForecast
+  .wrapper.table.with-column-header-icons
+  .forecast-container
+  .forecast-item
+  .precipitation-container
+  .precipitation-accumulation {
+  grid-column: 1;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .forecast-icon {
+  width: 30px;
+  height: 30px;
+  display: block;
+  margin: 0 auto;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .forecast-item .time,
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .temperature,
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .temperature-container,
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .high-temperature,
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .temperature-separator,
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .low-temperature {
+  white-space: nowrap;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .forecast-item .wind-gusts,
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .accumulation {
+  display: block;
+  white-space: nowrap;
+}
+
+.MMM-WeatherdotcomForecast .wrapper.table .forecast-container .forecast-item .wind-container {
+  min-width: 3.5em;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item
+  .wind-container
+  .wind-gusts {
+  font-size: 0.78em;
+  line-height: 1.05;
+}
+
+/* ------------ Today / Next-upcoming amber accent ------------ */
+
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item.next-upcoming
+  > span:first-child,
+.MMM-WeatherdotcomForecast
+  .wrapper.table
+  .forecast-container
+  .forecast-item.today
+  > span:first-child {
+  border-left: 2px solid #f5b041;
+  padding-left: 6px;
+}
+
+.MMM-WeatherdotcomForecast
+  .wrapper.tiled
+  .forecast-container
+  .forecast-item.next-upcoming,
+.MMM-WeatherdotcomForecast .wrapper.tiled .forecast-container .forecast-item.today {
+  border-top: 2px solid #f5b041;
+}
+
+.MMM-WeatherdotcomForecast .forecast-item.next-upcoming .time,
+.MMM-WeatherdotcomForecast .forecast-item.today .day-name {
+  color: #f5b041;
+}

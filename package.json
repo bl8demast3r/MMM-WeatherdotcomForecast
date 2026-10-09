@@ -1,0 +1,25 @@
+{
+  "name": "MMM-WeatherdotcomForecast",
+  "version": "1.0.0",
+  "description": "MagicMirror² module that displays the weather data shared by MMM-Weatherdotcom (fork of MMM-NOAAForecast)",
+  "main": "MMM-WeatherdotcomForecast.js",
+  "scripts": {
+    "test": "jest --config=jest.config.js",
+    "test:verbose": "jest --config=jest.config.js --verbose",
+    "test:coverage": "jest --config=jest.config.js --coverage"
+  },
+  "keywords": [
+    "MagicMirror",
+    "module",
+    "weather",
+    "forecast",
+    "Weather.com",
+    "NOAA"
+  ],
+  "author": "bl8demast3r",
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "moment": "^2.30.1"
+  }
+}
