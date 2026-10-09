@@ -1,7 +1,7 @@
 # MMM-WeatherdotcomForecast
 
 > [!WARNING]
-> **Disclaimer:** This module is a fork of MMM-NOAAForecast, whose edits and feature additions were implemented with the assistance of Google Gemini. The changes in this fork were made with the assistance of Claude. Please use with caution and test thoroughly in your own setup.
+> **AI disclaimer:** This module is a fork of [MMM-NOAAForecast](https://github.com/bl8demast3r/MMM-NOAAForecast), whose edits and feature additions were implemented with the assistance of Google Gemini. The changes in this fork were made with the assistance of [Claude](https://www.anthropic.com/claude), an AI model by Anthropic, working with bl8demast3r. It is covered by automated tests and was tried on a running MagicMirror², but AI-generated code can contain mistakes. Please review the code, use it with caution and test it thoroughly in your own setup.
 
 A weather module for [MagicMirror²](https://github.com/MagicMirrorOrg/MagicMirror) that displays current conditions, hourly and daily forecasts and weather alerts. It's a fork of [MMM-NOAAForecast](https://github.com/bl8demast3r/MMM-NOAAForecast) that displays the weather data shared by [MMM-Weatherdotcom](https://github.com/bl8demast3r/MMM-Weatherdotcom): [Weather.com](https://weather.com/) data, with [NOAA](https://www.weather.gov/documentation/services-web-api) as a backup.
 
@@ -303,6 +303,12 @@ npm test
 ```
 
 The tests include real Weather.com and NOAA data, captured through MMM-Weatherdotcom.
+
+## Contributors
+
+- **[bl8demast3r](https://github.com/bl8demast3r)**: maintainer
+- **[Claude](https://www.anthropic.com/claude)** (AI model by Anthropic): made the changes in this fork, and wrote its tests and documentation, with bl8demast3r
+- **Marcus Markiewicz**: author of the original MMM-NOAAForecast
 
 ## Attributions
 
